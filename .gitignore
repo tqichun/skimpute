@@ -1,0 +1,6 @@
+*.pyc
+__pycache__
+*.ipynb
+.virtual_documents
+.ipynb_checkpoints
+.idea
