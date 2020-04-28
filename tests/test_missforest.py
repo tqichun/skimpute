@@ -6,7 +6,7 @@ from sklearn.utils.testing import assert_raise_message
 from sklearn.utils.testing import assert_equal
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 
-from missingpy import MissForest
+from skimpute import MissForest
 
 def gen_array(n_rows=20, n_cols=5, missingness=0.2, min_val=0, max_val=10,
               missing_values=np.nan, rand_seed=1337):

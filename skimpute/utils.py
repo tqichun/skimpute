@@ -45,7 +45,7 @@ def masked_euclidean_distances(X, Y=None, squared=False,
 
     Examples
     --------
-    >>> from missingpy.utils import masked_euclidean_distances
+    >>> from skimpute.utils import masked_euclidean_distances
     >>> nan = float("NaN")
     >>> X = [[0, 1], [1, nan]]
     >>> # distance between rows of X

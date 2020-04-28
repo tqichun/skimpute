@@ -5,9 +5,9 @@ from sklearn.utils.testing import assert_array_almost_equal
 from sklearn.utils.testing import assert_raise_message
 from sklearn.utils.testing import assert_equal
 
-from missingpy import KNNImputer
-from missingpy.pairwise_external import masked_euclidean_distances
-from missingpy.pairwise_external import pairwise_distances
+from skimpute import KNNImputer
+from skimpute.pairwise_external import masked_euclidean_distances
+from skimpute.pairwise_external import pairwise_distances
 
 
 def test_knn_imputation_shape():

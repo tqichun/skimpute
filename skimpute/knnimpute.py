@@ -102,7 +102,7 @@ class KNNImputer(BaseEstimator, TransformerMixin):
 
     Examples
     --------
-    >>> from missingpy import KNNImputer
+    >>> from skimpute import KNNImputer
     >>> nan = float("NaN")
     >>> X = [[1, 2, nan], [3, 4, 3], [nan, 6, 5], [8, 8, 7]]
     >>> imputer = KNNImputer(n_neighbors=2, weights="uniform")

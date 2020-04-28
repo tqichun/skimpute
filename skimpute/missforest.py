@@ -220,7 +220,7 @@ class MissForest(BaseEstimator, TransformerMixin):
 
     Examples
     --------
-    >>> from missingpy import MissForest
+    >>> from skimpute import MissForest
     >>> nan = float("NaN")
     >>> X = [[1, 2, nan], [3, 4, 3], [nan, 6, 5], [8, 8, 7]]
     >>> imputer = MissForest(random_state=1337)
