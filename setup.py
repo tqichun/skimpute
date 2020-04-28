@@ -10,7 +10,7 @@ setuptools.setup(
     description="Missing Data Imputation for Python",
     long_description=long_description,
     long_description_content_type="text/markdown",
-    url="https://github.com/epsilon-machine/missingpy",
+    url="https://github.com/tqichun/skimpute",
     packages=setuptools.find_packages(exclude=["example","tests"]),
     classifiers=(
         "Programming Language :: Python :: 3",
