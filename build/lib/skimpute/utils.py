@@ -3,35 +3,6 @@
 # License: BSD 3 clause
 
 import numpy as np
-import pandas as pd
-from sklearn.preprocessing import LabelEncoder
-from sklearn.utils.multiclass import type_of_target
-
-
-def process_dataframe(X):
-    if isinstance(X, pd.DataFrame):
-        X_ = X.values
-        columns = X.columns
-        index = X.index
-    else:
-        X_ = X
-        columns = range(X_.shape[1])
-        index = range(X_.shape[0])
-    return X_, columns, index
-
-
-def finite_array(array):
-    """
-    Replace NaN and Inf (there should not be any!)
-    :param array:
-    :return:
-    """
-    a = np.ravel(array)
-    maxi = np.nanmax(a[np.isfinite(a)])
-    mini = np.nanmin(a[np.isfinite(a)])
-    array[array == float('inf')] = maxi
-    array[array == float('-inf')] = mini
-    return array
 
 
 def masked_euclidean_distances(X, Y=None, squared=False,
@@ -116,7 +87,7 @@ def masked_euclidean_distances(X, Y=None, squared=False,
     mask_YT = mask_X.T if Y is X else _get_mask(YT, missing_values)
 
     # Check if any rows have only missing value
-    if np.any(mask_X.sum(axis=1) == X.shape[1]) \
+    if np.any(mask_X.sum(axis=1) == X.shape[1])\
             or (Y is not X and np.any(mask_YT.sum(axis=0) == Y.shape[1])):
         raise ValueError("One or more rows only contain missing values.")
 
@@ -151,50 +122,3 @@ def masked_euclidean_distances(X, Y=None, squared=False,
         distances.flat[::distances.shape[0] + 1] = 0.0
 
     return distances if squared else np.sqrt(distances, out=distances)
-
-
-def is_cat(s, consider_ordinal_as_cat):
-    for elem in s:
-        if isinstance(elem, (float, int)):
-            continue
-        else:
-            return True
-    if consider_ordinal_as_cat:
-        if s.dtype == object:
-            s = s.astype(float)
-        tp = type_of_target(finite_array(s[~np.isnan(s)]))
-        if tp in ("multiclass", "binary"):
-            return True
-    return False
-
-
-def parse_cat_col(X_, consider_ordinal_as_cat):
-    cat_idx = []
-    num_idx = []
-    for i in range(X_.shape[1]):
-        col = X_[:, i]
-        if is_cat(col, consider_ordinal_as_cat):
-            cat_idx.append(i)
-        else:
-            num_idx.append(i)
-    return np.array(num_idx), np.array(cat_idx)
-
-def encode_data(X_,cat_idx,additional_data,target_type):
-    idx2encoder = {}
-    for idx in cat_idx:
-        if is_cat(X_[:, idx], False):
-            col = X_[:, idx]
-            valid_mask = ~pd.isna(col)
-            masked = col[valid_mask]
-            masked = masked.astype(str)
-            encoder = LabelEncoder()
-            encoder.fit(masked)
-            idx2encoder[idx] = encoder
-            X_[valid_mask, idx] = encoder.transform(masked)
-            for data in additional_data:
-                data[idx] = encoder.transform([data[idx]])[0].astype(target_type)
-    return idx2encoder
-
-def decode_data(X_,idx2encoder, target_type):
-    for idx, encoder in idx2encoder.items():
-        X_[:, idx] = encoder.inverse_transform(X_[:, idx].astype(target_type))

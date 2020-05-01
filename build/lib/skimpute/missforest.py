@@ -2,20 +2,17 @@
 # Author: Ashim Bhattarai
 # License: GNU General Public License v3 (GPLv3)
 
-import logging
 import warnings
 
 import numpy as np
-import pandas as pd
-from sklearn.base import BaseEstimator, TransformerMixin
-from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
-from sklearn.impute import SimpleImputer
-from sklearn.utils.validation import check_is_fitted
+from scipy.stats import mode
 
-from skimpute.utils import process_dataframe, parse_cat_col, encode_data, decode_data
+from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.utils.validation import check_is_fitted, check_array
+from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
+
 from .pairwise_external import _get_mask
 
-logger = logging.getLogger(__name__)
 __all__ = [
     'MissForest',
 ]
@@ -45,15 +42,15 @@ class MissForest(BaseEstimator, TransformerMixin):
     with a missing value, possibly over multiple iterations or epochs for
     each column, until the stopping criterion is met.
     The stopping criterion is governed by the "difference" between the imputed
-    arrays over successive iterations. For numerical variables (num_idx),
+    arrays over successive iterations. For numerical variables (num_vars_),
     the difference is defined as follows:
 
-     sum((X_new[:, num_idx] - X_old[:, num_idx]) ** 2) /
-     sum((X_new[:, num_idx]) ** 2)
+     sum((X_new[:, num_vars_] - X_old[:, num_vars_]) ** 2) /
+     sum((X_new[:, num_vars_]) ** 2)
 
-    For categorical variables(cat_idx), the difference is defined as follows:
+    For categorical variables(cat_vars_), the difference is defined as follows:
 
-    sum(X_new[:, cat_idx] != X_old[:, cat_idx])) / n_cat_missing
+    sum(X_new[:, cat_vars_] != X_old[:, cat_vars_])) / n_cat_missing
 
     where X_new is the newly imputed array, X_old is the array imputed in the
     previous round, n_cat_missing is the total number of categorical
@@ -242,10 +239,9 @@ class MissForest(BaseEstimator, TransformerMixin):
                  max_depth=None, min_samples_split=2, min_samples_leaf=1,
                  min_weight_fraction_leaf=0.0, max_features='auto',
                  max_leaf_nodes=None, min_impurity_decrease=0.0,
-                 bootstrap=True, oob_score=False, n_jobs=-1, random_state=42,
-                 verbose=0, warm_start=False, class_weight=None, consider_ordinal_as_cat=False):
+                 bootstrap=True, oob_score=False, n_jobs=-1, random_state=None,
+                 verbose=0, warm_start=False, class_weight=None):
 
-        self.consider_ordinal_as_cat = consider_ordinal_as_cat
         self.max_iter = max_iter
         self.decreasing = decreasing
         self.missing_values = missing_values
@@ -275,16 +271,16 @@ class MissForest(BaseEstimator, TransformerMixin):
 
         # Get col and row indices for missing
         missing_rows, missing_cols = np.where(mask)
-        rf_regressor = rf_classifier = n_catmissing = None
-        if self.num_idx.size:
+
+        if self.num_vars_ is not None:
             # Only keep indices for numerical vars
-            keep_idx_num = np.in1d(missing_cols, self.num_idx)
+            keep_idx_num = np.in1d(missing_cols, self.num_vars_)
             missing_num_rows = missing_rows[keep_idx_num]
             missing_num_cols = missing_cols[keep_idx_num]
 
             # Make initial guess for missing values
             col_means = np.full(Ximp.shape[1], fill_value=np.nan)
-            col_means[self.num_idx] = self.statistics_.get('col_means')
+            col_means[self.num_vars_] = self.statistics_.get('col_means')
             Ximp[missing_num_rows, missing_num_cols] = np.take(
                 col_means, missing_num_cols)
 
@@ -309,19 +305,20 @@ class MissForest(BaseEstimator, TransformerMixin):
                 random_state=self.random_state,
                 verbose=self.verbose,
                 warm_start=self.warm_start)
+
         # If needed, repeat for categorical variables
-        if self.cat_idx.size:
+        if self.cat_vars_ is not None:
             # Calculate total number of missing categorical values (used later)
-            n_catmissing = np.sum(mask[:, self.cat_idx])
+            n_catmissing = np.sum(mask[:, self.cat_vars_])
 
             # Only keep indices for categorical vars
-            keep_idx_cat = np.in1d(missing_cols, self.cat_idx)
+            keep_idx_cat = np.in1d(missing_cols, self.cat_vars_)
             missing_cat_rows = missing_rows[keep_idx_cat]
             missing_cat_cols = missing_cols[keep_idx_cat]
 
             # Make initial guess for missing values
             col_modes = np.full(Ximp.shape[1], fill_value=np.nan)
-            col_modes[self.cat_idx] = self.statistics_.get('col_modes')[self.cat_idx]
+            col_modes[self.cat_vars_] = self.statistics_.get('col_modes')
             Ximp[missing_cat_rows, missing_cat_cols] = np.take(col_modes, missing_cat_cols)
 
             # Classfication criterion
@@ -391,15 +388,13 @@ class MissForest(BaseEstimator, TransformerMixin):
                 xmis = Ximp[np.ix_(mis_rows, s_prime)]
 
                 # 6. Fit a random forest over observed and predict the missing
-                if self.cat_idx is not None and s in self.cat_idx:
-                    yobs = yobs.astype('int32')
+                if self.cat_vars_ is not None and s in self.cat_vars_:
                     rf_classifier.fit(X=xobs, y=yobs)
                     # 7. predict ymis(s) using xmis(x)
                     ymis = rf_classifier.predict(xmis)
                     # 8. update imputed matrix using predicted matrix ymis(s)
                     Ximp[mis_rows, s] = ymis
                 else:
-                    yobs = yobs.astype('float32')
                     rf_regressor.fit(X=xobs, y=yobs)
                     # 7. predict ymis(s) using xmis(x)
                     ymis = rf_regressor.predict(xmis)
@@ -407,19 +402,18 @@ class MissForest(BaseEstimator, TransformerMixin):
                     Ximp[mis_rows, s] = ymis
 
             # 9. Update gamma (stopping criterion)
-            if self.cat_idx is not None:
+            if self.cat_vars_ is not None:
                 gamma_newcat = np.sum(
-                    (Ximp[:, self.cat_idx] != Ximp_old[:, self.cat_idx])) / n_catmissing
-            if self.num_idx is not None:
-                gamma_new = np.sum((Ximp[:, self.num_idx] - Ximp_old[:, self.num_idx]) ** 2) / np.sum(
-                    (Ximp[:, self.num_idx]) ** 2)
+                    (Ximp[:, self.cat_vars_] != Ximp_old[:, self.cat_vars_])) / n_catmissing
+            if self.num_vars_ is not None:
+                gamma_new = np.sum((Ximp[:, self.num_vars_] - Ximp_old[:, self.num_vars_]) ** 2) / np.sum((Ximp[:, self.num_vars_]) ** 2)
 
-            logger.debug(f"MissForest Coverage Iteration: {self.iter_count_}")
+            print("Iteration:", self.iter_count_)
             self.iter_count_ += 1
 
-        return Ximp
+        return Ximp_old
 
-    def fit(self, X, y=None):
+    def fit(self, X, y=None, cat_vars=None):
         """Fit the imputer on X.
 
         Parameters
@@ -428,29 +422,62 @@ class MissForest(BaseEstimator, TransformerMixin):
             Input data, where ``n_samples`` is the number of samples and
             ``n_features`` is the number of features.
 
+        cat_vars : int or array of ints, optional (default = None)
+            An int or an array containing column indices of categorical
+            variable(s)/feature(s) present in the dataset X.
+            ``None`` if there are no categorical variables in the dataset.
+
         Returns
         -------
         self : object
             Returns self.
         """
 
-        X_, columns, index = process_dataframe(X)
-        self.cols = X_.shape[1]
-        self.num_idx, self.cat_idx = parse_cat_col(X_, self.consider_ordinal_as_cat)
+        # Check data integrity and calling arguments
+        force_all_finite = False if self.missing_values in ["NaN",
+                                                            np.nan] else True
+
+        X = check_array(X, accept_sparse=False, dtype=np.float64,
+                        force_all_finite=force_all_finite, copy=self.copy)
+
+        # Check for +/- inf
+        if np.any(np.isinf(X)):
+            raise ValueError("+/- inf values are not supported.")
 
         # Check if any column has all missing
-        mask = _get_mask(X_, self.missing_values)
-        if np.any(mask.sum(axis=0) >= (X_.shape[0])):
+        mask = _get_mask(X, self.missing_values)
+        if np.any(mask.sum(axis=0) >= (X.shape[0])):
             raise ValueError("One or more columns have all rows missing.")
+
+        # Check cat_vars type and convert if necessary
+        if cat_vars is not None:
+            if type(cat_vars) == int:
+                cat_vars = [cat_vars]
+            elif type(cat_vars) == list or type(cat_vars) == np.ndarray:
+                if np.array(cat_vars).dtype != int:
+                    raise ValueError(
+                        "cat_vars needs to be either an int or an array "
+                        "of ints.")
+            else:
+                raise ValueError("cat_vars needs to be either an int or an array "
+                                 "of ints.")
+
+        # Identify numerical variables
+        num_vars = np.setdiff1d(np.arange(X.shape[1]), cat_vars)
+        num_vars = num_vars if len(num_vars) > 0 else None
 
         # First replace missing values with NaN if it is something else
         if self.missing_values not in ['NaN', np.nan]:
-            X_[np.where(X_ == self.missing_values)] = np.nan
+            X[np.where(X == self.missing_values)] = np.nan
 
         # Now, make initial guess for missing values
-        col_means = np.nanmean(X_[:, self.num_idx], axis=0) if self.num_idx.size else None
-        col_modes = SimpleImputer(strategy="most_frequent").fit(X_).statistics_
+        col_means = np.nanmean(X[:, num_vars], axis=0) if num_vars is not None else None
+        col_modes = mode(
+            X[:, cat_vars], axis=0, nan_policy='omit')[0] if cat_vars is not \
+                                                           None else None
 
+        self.cat_vars_ = cat_vars
+        self.num_vars_ = num_vars
         self.statistics_ = {"col_means": col_means, "col_modes": col_modes}
 
         return self
@@ -469,38 +496,61 @@ class MissForest(BaseEstimator, TransformerMixin):
             The imputed dataset.
         """
         # Confirm whether fit() has been called
-        check_is_fitted(self, ["num_idx", "cat_idx", "statistics_"])
-        X_, columns, index = process_dataframe(X)
+        check_is_fitted(self, ["cat_vars_", "num_vars_", "statistics_"])
+
+        # Check data integrity
+        force_all_finite = False if self.missing_values in ["NaN",
+                                                            np.nan] else True
+        X = check_array(X, accept_sparse=False, dtype=np.float64,
+                        force_all_finite=force_all_finite, copy=self.copy)
+
+        # Check for +/- inf
+        if np.any(np.isinf(X)):
+            raise ValueError("+/- inf values are not supported.")
+
         # Check if any column has all missing
-        mask = _get_mask(X_, self.missing_values)
-        if np.any(mask.sum(axis=0) >= (X_.shape[0])):
-            warnings.warn("One or more columns have all rows missing. Using AdaptiveSimpleImputer to do imputing.")
-            from skimpute.adaptive import AdaptiveSimpleImputer
-            return AdaptiveSimpleImputer(consider_ordinal_as_cat=self.consider_ordinal_as_cat). \
-                fit_transform(X)
+        mask = _get_mask(X, self.missing_values)
+        if np.any(mask.sum(axis=0) >= (X.shape[0])):
+            raise ValueError("One or more columns have all rows missing.")
 
-        # Get fitted X_ col count and ensure correct dimension
-        n_cols_fit_X_ = len(self.num_idx) + len(self.cat_idx)
-        _, n_cols_X_ = X_.shape
+        # Get fitted X col count and ensure correct dimension
+        n_cols_fit_X = (0 if self.num_vars_ is None else len(self.num_vars_)) \
+            + (0 if self.cat_vars_ is None else len(self.cat_vars_))
+        _, n_cols_X = X.shape
 
-        if n_cols_X_ != n_cols_fit_X_:
+        if n_cols_X != n_cols_fit_X:
             raise ValueError("Incompatible dimension between the fitted "
                              "dataset and the one to be transformed.")
 
-        # Check if anything is actually missing and if not return original X_                             
-        mask = _get_mask(X_, self.missing_values)
+        # Check if anything is actually missing and if not return original X                             
+        mask = _get_mask(X, self.missing_values)
         if not mask.sum() > 0:
             warnings.warn("No missing value located; returning original "
                           "dataset.")
             return X
 
-        # convert string column to index
-        idx2encoder = encode_data(X_, self.cat_idx, [self.statistics_["col_modes"]], "int32")
+        # row_total_missing = mask.sum(axis=1)
+        # if not np.any(row_total_missing):
+        #     return X
 
         # Call missForest function to impute missing
-        X_ = self._miss_forest(X_, mask)
-
-        decode_data(X_, idx2encoder, "int32")
+        X = self._miss_forest(X, mask)
 
         # Return imputed dataset
-        return pd.DataFrame(X_, columns=columns, index=index)
+        return X
+
+    def fit_transform(self, X, y=None, **fit_params):
+        """Fit MissForest and impute all missing values in X.
+
+        Parameters
+        ----------
+        X : {array-like}, shape (n_samples, n_features)
+            Input data, where ``n_samples`` is the number of samples and
+            ``n_features`` is the number of features.
+
+        Returns
+        -------
+        X : {array-like}, shape (n_samples, n_features)
+            Returns imputed dataset.
+        """
+        return self.fit(X, **fit_params).transform(X)

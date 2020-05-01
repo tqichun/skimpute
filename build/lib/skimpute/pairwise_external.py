@@ -39,7 +39,6 @@ from functools import partial
 import itertools
 
 import numpy as np
-import pandas as pd
 from scipy.spatial import distance
 from scipy.sparse import issparse
 
@@ -58,7 +57,7 @@ _VALID_METRICS += ['masked_euclidean']
 def _get_mask(X, value_to_mask):
     """Compute the boolean mask X == missing_values."""
     if value_to_mask == "NaN" or np.isnan(value_to_mask):
-        return pd.isna(X)
+        return np.isnan(X)
     else:
         return X == value_to_mask
 

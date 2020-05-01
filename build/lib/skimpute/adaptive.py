@@ -37,7 +37,7 @@ def parse_cat_col(X_, consider_ordinal_as_cat):
     return np.array(num_idx), np.array(cat_idx)
 
 
-class AdaptiveFill(BaseEstimator, TransformerMixin):
+class AdaptiveSimpleImputer(BaseEstimator, TransformerMixin):
     def __init__(self, num_strategy="median", cat_strategy="most_frequent", consider_ordinal_as_cat=False):
         self.consider_ordinal_as_cat = consider_ordinal_as_cat
         assert num_strategy in ("median", "mean")
@@ -70,11 +70,13 @@ class AdaptiveFill(BaseEstimator, TransformerMixin):
     def transform(self, X):
         if isinstance(X, pd.DataFrame):
             X_ = X.values
+            columns = X.columns
         else:
             X_ = X
+            columns = range(X_.shape[1])
         assert X_.shape[1] == self.cols
         if self.cat_imputer is not None:
             X_[:, self.cat_idx] = self.cat_imputer.transform(X_[:, self.cat_idx])
         if self.num_imputer is not None:
             X_[:, self.num_idx] = self.num_imputer.transform(X_[:, self.num_idx])
-        return X
+        return pd.DataFrame(X_, columns=columns)
