@@ -1,6 +1,8 @@
 """Utility Functions"""
 # Author: Ashim Bhattarai
 # License: BSD 3 clause
+from copy import deepcopy
+from typing import Union, List
 
 import numpy as np
 import pandas as pd
@@ -8,16 +10,14 @@ from sklearn import clone
 from sklearn.utils.multiclass import type_of_target
 
 
-def process_dataframe(X):
+def process_dataframe(X: Union[pd.DataFrame, np.ndarray]) -> pd.DataFrame:
     if isinstance(X, pd.DataFrame):
-        X_ = X.values
-        columns = X.columns
-        index = X.index
+        X_ = deepcopy(X)
+    elif isinstance(X, np.ndarray):
+        X_ = pd.DataFrame(X, columns=range(X.shape[1]))
     else:
-        X_ = X
-        columns = range(X_.shape[1])
-        index = range(X_.shape[0])
-    return X_, columns, index
+        raise NotImplementedError
+    return X_
 
 
 def finite_array(array):
@@ -171,11 +171,11 @@ def is_cat(s: pd.Series, consider_ordinal_as_cat):
     return False
 
 
-def parse_cat_col(X_, consider_ordinal_as_cat):
+def parse_cat_col(X_: pd.DataFrame, consider_ordinal_as_cat):
     cat_idx = []
     num_idx = []
-    for i in range(X_.shape[1]):
-        col = X_[:, i]
+    for i, column in enumerate(X_.columns):
+        col = X_[column]
         if is_cat(col, consider_ordinal_as_cat):
             cat_idx.append(i)
         else:
@@ -183,10 +183,12 @@ def parse_cat_col(X_, consider_ordinal_as_cat):
     return np.array(num_idx), np.array(cat_idx)
 
 
-def build_encoder(X_, y, cat_idx, passed_encoder, additional_data_list, target_type):
+def build_encoder(X_:pd.DataFrame, y, cat_idx, passed_encoder, additional_data_list:List[np.ndarray], target_type):
+    pd.set_option('mode.chained_assignment', None)
     idx2encoder = {}
+    result_additional_data_list=deepcopy(additional_data_list)
     for idx in cat_idx:
-        col = X_[:, idx]
+        col = X_.values[:, idx]
         valid_mask = ~pd.isna(col)
         masked_col = col[valid_mask]
         if y is not None:
@@ -197,27 +199,29 @@ def build_encoder(X_, y, cat_idx, passed_encoder, additional_data_list, target_t
         encoder = clone(passed_encoder)
         encoder.fit(masked_col, masked_y)
         idx2encoder[idx] = encoder
-        X_[valid_mask, idx] = encoder.transform(masked_col).squeeze()
-        for additional_data in additional_data_list:
+        col[valid_mask]=encoder.transform(masked_col).squeeze()
+        X_.iloc[:, idx] = col.astype(target_type)
+        for additional_data in result_additional_data_list:
             additional_data[idx] = encoder.transform([[str(additional_data[idx])]])[0][0]
-    X_ = X_.astype(target_type)
-    return idx2encoder, X_
+    return idx2encoder, X_, result_additional_data_list
 
 
-def encode_data(X_, idx2encoder, target_type):
+def encode_data(X_:pd.DataFrame, idx2encoder, target_type):
+    pd.set_option('mode.chained_assignment', None)
     for idx, encoder in idx2encoder.items():
-        col = X_[:, idx]
+        col = X_.values[:, idx]
         valid_mask = ~pd.isna(col)
         masked_col = col[valid_mask]
         masked_col = masked_col.reshape(-1, 1).astype(str)
-        X_[valid_mask, idx] = encoder.transform(masked_col).squeeze()
+        col[valid_mask]=encoder.transform(masked_col).squeeze()
+        X_.iloc[:, idx] = col
     return X_.astype(target_type)
 
 
-def decode_data(X, idx2encoder, target_type):
+def decode_data(X, idx2encoder):
     for idx, encoder in idx2encoder.items():
-        column=X.columns[idx]
-        sub_df=X[[column]].astype(target_type)
-        sub_df.columns=[0]
-        X[[column]] = encoder.inverse_transform(sub_df)
+        column = X.columns[idx]
+        sub_df = X[[column]]
+        sub_df.columns = [0]
+        X[[column]] = encoder.inverse_transform(sub_df)#.astype(target_types[idx])
     return X

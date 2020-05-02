@@ -19,13 +19,13 @@ class TargetEncoder(OriginTargetEncoder):
         return None
 
     def inverse_transform(self, X):
-        X_, columns, index = process_dataframe(X)
+        X_ = process_dataframe(X)
         result_list = []
-        for i, column in enumerate(columns):
+        for i, column in enumerate(X_.columns):
             if column in self.mapping:
                 map_val = deepcopy(self.mapping[column].values[:-2])
                 map_val = map_val.reshape(1, -1)
-                sub = np.abs(X_[:, i].reshape(-1, 1) - map_val)
+                sub = np.abs(X_.values[:, i].reshape(-1, 1) - map_val)
                 indexes = np.argmin(sub, axis=1)
                 enc_indexes = self.mapping[column].index[indexes]
                 ordinal_map_list = self.ordinal_encoder.mapping
@@ -37,6 +37,7 @@ class TargetEncoder(OriginTargetEncoder):
             else:
                 result = X[:, i].reshape(-1, 1)
             result_list.append(result)
+        # todo : 重构为DataFrame的形式？
         return np.concatenate(result_list, axis=1)
 
 

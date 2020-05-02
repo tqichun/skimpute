@@ -8,8 +8,9 @@ import warnings
 import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator, TransformerMixin
-from sklearn.utils.validation import check_is_fitted
 from sklearn.neighbors._base import _get_weights
+from sklearn.utils.validation import check_is_fitted
+
 from skimpute.utils import process_dataframe, parse_cat_col, build_encoder, encode_data, decode_data
 from skimpute.wrapped_encodes.target_encoder import TargetEncoder
 from .pairwise_external import _get_mask
@@ -191,10 +192,12 @@ class KNNImputer(BaseEstimator, TransformerMixin):
         self : object
             Returns self.
         """
-        X_, columns, index = process_dataframe(X)
+        self.dtypes = X.dtypes
+
+        X_ = process_dataframe(X)
         self.num_idx, self.cat_idx = parse_cat_col(X_, self.consider_ordinal_as_cat)
         encoder = TargetEncoder()
-        self.idx2encoder, X_ = build_encoder(X_, y, self.cat_idx, encoder, [], "float32")
+        self.idx2encoder, X_, _ = build_encoder(X_, y, self.cat_idx, encoder, [], "float32")
         # Check if % missing in any column > col_max_missing
         mask = _get_mask(X_, self.missing_values)
         self.do_simple_imputing = False
@@ -212,13 +215,13 @@ class KNNImputer(BaseEstimator, TransformerMixin):
                     .format(self.row_max_missing * 100))
 
             # Remove rows that have more than row_max_missing % missing
-            X_ = X_[~bad_rows, :]
+            X_ = X_.iloc[~bad_rows, :]
 
         # Check if sufficient neighboring samples available
         if X_.shape[0] < self.n_neighbors:
             self.do_simple_imputing = True
             logger.warning("There are only %d samples, but n_neighbors=%d." % (X_.shape[0], self.n_neighbors))
-        self.fitted_X_ = X_
+        self.fitted_X_ = X_.values
         self.statistics_ = X_col_means
         return self
 
@@ -236,12 +239,14 @@ class KNNImputer(BaseEstimator, TransformerMixin):
             The imputed dataset.
         """
 
-        check_is_fitted(self, ["fitted_X_", "statistics_", "do_simple_imputing", "idx2encoder"])
+        check_is_fitted(self, ["fitted_X_", "statistics_", "do_simple_imputing", "idx2encoder","dtypes"])
         if self.do_simple_imputing:
             logger.debug("KNNImputer is doing adaptive simple imputation.")
             from skimpute import AdaptiveSimpleImputer
             return AdaptiveSimpleImputer(consider_ordinal_as_cat=self.consider_ordinal_as_cat).fit_transform(X)
-        X_, columns, index = process_dataframe(X)
+        X_ = process_dataframe(X)
+        columns = X.columns
+        index = X.index
         X_ = encode_data(X_, self.idx2encoder, "float32")
         # Get fitted data and ensure correct dimension
         n_rows_fit_X, n_cols_fit_X = self.fitted_X_.shape
@@ -254,7 +259,7 @@ class KNNImputer(BaseEstimator, TransformerMixin):
 
         row_total_missing = mask.sum(axis=1)
         if not np.any(row_total_missing):
-            return X
+            return X_
 
         # Check for excessive missingness in rows
         bad_rows = row_total_missing > (mask.shape[1] * self.row_max_missing)
@@ -263,8 +268,8 @@ class KNNImputer(BaseEstimator, TransformerMixin):
                 "There are rows with more than {0}% missing values. The "
                 "missing features in these rows are imputed with column means."
                     .format(self.row_max_missing * 100))
-            X_bad = X_[bad_rows, :]
-            X_ = X_[~bad_rows, :]
+            X_bad = X_.iloc[bad_rows, :]
+            X_ = X_.iloc[~bad_rows, :]
             mask = mask[~bad_rows]
             row_total_missing = mask.sum(axis=1)
         row_has_missing = row_total_missing.astype(np.bool)
@@ -276,11 +281,11 @@ class KNNImputer(BaseEstimator, TransformerMixin):
             # Pairwise distances between receivers and fitted samples
             dist = np.empty((len(X_), len(self.fitted_X_)))
             dist[row_has_missing] = pairwise_distances(
-                X_[row_has_missing], self.fitted_X_, metric=self.metric,
+                X_.iloc[row_has_missing].values, self.fitted_X_, metric=self.metric,
                 squared=False, missing_values=self.missing_values)
 
             # Find and impute missing
-            X_ = self._impute(dist, X_, self.fitted_X_, mask, mask_fx)
+            X_ = self._impute(dist, X_.values, self.fitted_X_, mask, mask_fx)
 
         # Merge bad rows to X and mean impute their missing values
         if np.any(bad_rows):
@@ -291,6 +296,7 @@ class KNNImputer(BaseEstimator, TransformerMixin):
             X_merged[bad_rows, :] = X_bad
             X_merged[~bad_rows, :] = X_
             X_ = X_merged
-        X=pd.DataFrame(X_,columns=columns,index=index)
-        X=decode_data(X,self.idx2encoder,"float32")
+        X = pd.DataFrame(X_, columns=columns, index=index)
+        X = decode_data(X, self.idx2encoder)
+        X = X.astype(self.dtypes)
         return X

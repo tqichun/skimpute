@@ -2,7 +2,6 @@
 # -*- coding: utf-8 -*-
 # @Author  : qichun tang
 # @Contact    : tqichun@gmail.com
-import pandas as pd
 from sklearn.base import BaseEstimator
 from sklearn.base import TransformerMixin
 from sklearn.impute import SimpleImputer
@@ -23,25 +22,25 @@ class AdaptiveSimpleImputer(BaseEstimator, TransformerMixin):
         self.fill_value = fill_value
 
     def fit(self, X, y=None, **kwargs):
-        X_, columns, index = process_dataframe(X)
+        X_ = process_dataframe(X)
         self.cols = X_.shape[1]
         self.num_idx, self.cat_idx = parse_cat_col(X_, self.consider_ordinal_as_cat)
         if self.num_idx.size:
-            self.num_imputer = SimpleImputer(strategy=self.num_strategy).fit(X_[:, self.num_idx])
+            self.num_imputer = SimpleImputer(strategy=self.num_strategy).fit(X_.iloc[:, self.num_idx])
         else:
             self.num_imputer = None
         if self.cat_idx.size:
             self.cat_imputer = SimpleImputer(strategy=self.cat_strategy, fill_value=self.fill_value).fit(
-                X_[:, self.cat_idx])
+                X_.iloc[:, self.cat_idx])
         else:
             self.cat_imputer = None
         return self
 
     def transform(self, X):
-        X_, columns, index = process_dataframe(X)
+        X_ = process_dataframe(X)
         assert X_.shape[1] == self.cols
         if self.cat_imputer is not None:
-            X_[:, self.cat_idx] = self.cat_imputer.transform(X_[:, self.cat_idx])
+            X_.iloc[:, self.cat_idx] = self.cat_imputer.transform(X_.iloc[:, self.cat_idx])
         if self.num_imputer is not None:
-            X_[:, self.num_idx] = self.num_imputer.transform(X_[:, self.num_idx])
-        return pd.DataFrame(X_, columns=columns, index=index)
+            X_.iloc[:, self.num_idx] = self.num_imputer.transform(X_.iloc[:, self.num_idx])
+        return X_

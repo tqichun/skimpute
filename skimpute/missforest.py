@@ -3,6 +3,7 @@
 # License: GNU General Public License v3 (GPLv3)
 
 import logging
+from copy import deepcopy
 
 import numpy as np
 import pandas as pd
@@ -271,6 +272,8 @@ class MissForest(BaseEstimator, TransformerMixin):
         """The missForest algorithm"""
 
         # Count missing per column
+        if isinstance(Ximp, pd.DataFrame):
+            Ximp = Ximp.values
         col_missing_count = mask.sum(axis=0)
 
         # Get col and row indices for missing
@@ -284,7 +287,7 @@ class MissForest(BaseEstimator, TransformerMixin):
 
             # Make initial guess for missing values
             col_means = np.full(Ximp.shape[1], fill_value=np.nan)
-            col_means[self.num_idx] = self.statistics_.get('col_means')
+            col_means[self.num_idx] = deepcopy(self.statistics_.get('col_means'))
             Ximp[missing_num_rows, missing_num_cols] = np.take(
                 col_means, missing_num_cols)
 
@@ -321,7 +324,7 @@ class MissForest(BaseEstimator, TransformerMixin):
 
             # Make initial guess for missing values
             col_modes = np.full(Ximp.shape[1], fill_value=np.nan)
-            col_modes[self.cat_idx] = self.statistics_.get('col_modes')[self.cat_idx]
+            col_modes[self.cat_idx] = self.encoded_col_modes[self.cat_idx]
             Ximp[missing_cat_rows, missing_cat_cols] = np.take(col_modes, missing_cat_cols)
 
             # Classfication criterion
@@ -366,7 +369,7 @@ class MissForest(BaseEstimator, TransformerMixin):
                 self.iter_count_ < self.max_iter:
 
             # 4. store previously imputed matrix
-            Ximp_old = np.copy(Ximp)
+            Ximp_old = deepcopy(Ximp)
             if self.iter_count_ != 0:
                 gamma_old = gamma_new
                 gamma_oldcat = gamma_newcat
@@ -434,7 +437,7 @@ class MissForest(BaseEstimator, TransformerMixin):
             Returns self.
         """
 
-        X_, columns, index = process_dataframe(X)
+        X_ = process_dataframe(X)
         self.cols = X_.shape[1]
         self.num_idx, self.cat_idx = parse_cat_col(X_, self.consider_ordinal_as_cat)
 
@@ -445,10 +448,10 @@ class MissForest(BaseEstimator, TransformerMixin):
 
         # First replace missing values with NaN if it is something else
         if self.missing_values not in ['NaN', np.nan]:
-            X_[np.where(X_ == self.missing_values)] = np.nan
+            X_.iloc[np.where(X_ == self.missing_values)] = np.nan
 
         # Now, make initial guess for missing values
-        col_means = np.nanmean(X_[:, self.num_idx], axis=0) if self.num_idx.size else None
+        col_means = np.nanmean(X_.iloc[:, self.num_idx], axis=0) if self.num_idx.size else None
         col_modes = SimpleImputer(strategy="most_frequent").fit(X_).statistics_
 
         self.statistics_ = {"col_means": col_means, "col_modes": col_modes}
@@ -470,7 +473,8 @@ class MissForest(BaseEstimator, TransformerMixin):
         """
         # Confirm whether fit() has been called
         check_is_fitted(self, ["num_idx", "cat_idx", "statistics_"])
-        X_, columns, index = process_dataframe(X)
+        X_ = process_dataframe(X)
+        dtypes = X_.dtypes
         # Check if any column has all missing
         mask = _get_mask(X_, self.missing_values)
         if np.any(mask.sum(axis=0) >= (X_.shape[0])):
@@ -487,21 +491,22 @@ class MissForest(BaseEstimator, TransformerMixin):
             raise ValueError("Incompatible dimension between the fitted "
                              "dataset and the one to be transformed.")
 
-        # Check if anything is actually missing and if not return original X_                             
-        mask = _get_mask(X_, self.missing_values)
         if not mask.sum() > 0:
             logger.warning("No missing value located; returning original "
                            "dataset.")
             return X
 
         # convert string column to index
-        idx2encoder, X_ = build_encoder(X_, None, self.cat_idx, OrdinalEncoder(),
-                                    [self.statistics_["col_modes"]], "float32")
-
+        col_modes = SimpleImputer(strategy="most_frequent").fit(X_).statistics_
+        idx2encoder, X_, additional_data_list = build_encoder(X_, None, self.cat_idx, OrdinalEncoder(),
+                                                              [col_modes], "float32")
+        self.encoded_col_modes=additional_data_list[0].astype('float32')
         # Call missForest function to impute missing
-        X_ = self._miss_forest(X_, mask)
-        X=pd.DataFrame(X_, columns=columns, index=index)
-        X=decode_data(X, idx2encoder, "float32")
-
+        columns = X_.columns
+        index = X_.index
+        Ximp = self._miss_forest(X_, mask)
+        X = pd.DataFrame(Ximp, columns=columns, index=index)
+        X = decode_data(X, idx2encoder)
+        X = X.astype(dtypes)
         # Return imputed dataset
         return X

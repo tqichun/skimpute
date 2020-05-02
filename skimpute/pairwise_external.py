@@ -55,12 +55,15 @@ _MASKED_METRICS = ['masked_euclidean']
 _VALID_METRICS += ['masked_euclidean']
 
 
-def _get_mask(X, value_to_mask):
+def _get_mask(X:pd.DataFrame, value_to_mask):
     """Compute the boolean mask X == missing_values."""
     if value_to_mask == "NaN" or np.isnan(value_to_mask):
-        return pd.isna(X)
+        ans= pd.isna(X)
     else:
-        return X == value_to_mask
+        ans= (X == value_to_mask)
+    if isinstance(ans,(pd.DataFrame,pd.Series)):
+        ans=ans.values
+    return  ans
 
 
 def check_pairwise_arrays(X, Y, precomputed=False, dtype=None,
