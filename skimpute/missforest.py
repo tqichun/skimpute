@@ -3,16 +3,16 @@
 # License: GNU General Public License v3 (GPLv3)
 
 import logging
-import warnings
 
 import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.ensemble import RandomForestClassifier, RandomForestRegressor
 from sklearn.impute import SimpleImputer
+from sklearn.preprocessing import OrdinalEncoder
 from sklearn.utils.validation import check_is_fitted
 
-from skimpute.utils import process_dataframe, parse_cat_col, encode_data, decode_data
+from skimpute.utils import process_dataframe, parse_cat_col, build_encoder, decode_data
 from .pairwise_external import _get_mask
 
 logger = logging.getLogger(__name__)
@@ -474,7 +474,7 @@ class MissForest(BaseEstimator, TransformerMixin):
         # Check if any column has all missing
         mask = _get_mask(X_, self.missing_values)
         if np.any(mask.sum(axis=0) >= (X_.shape[0])):
-            warnings.warn("One or more columns have all rows missing. Using AdaptiveSimpleImputer to do imputing.")
+            logger.warning("One or more columns have all rows missing. Using AdaptiveSimpleImputer to do imputing.")
             from skimpute.adaptive import AdaptiveSimpleImputer
             return AdaptiveSimpleImputer(consider_ordinal_as_cat=self.consider_ordinal_as_cat). \
                 fit_transform(X)
@@ -490,17 +490,18 @@ class MissForest(BaseEstimator, TransformerMixin):
         # Check if anything is actually missing and if not return original X_                             
         mask = _get_mask(X_, self.missing_values)
         if not mask.sum() > 0:
-            warnings.warn("No missing value located; returning original "
-                          "dataset.")
+            logger.warning("No missing value located; returning original "
+                           "dataset.")
             return X
 
         # convert string column to index
-        idx2encoder = encode_data(X_, self.cat_idx, [self.statistics_["col_modes"]], "int32")
+        idx2encoder, X_ = build_encoder(X_, None, self.cat_idx, OrdinalEncoder(),
+                                    [self.statistics_["col_modes"]], "float32")
 
         # Call missForest function to impute missing
         X_ = self._miss_forest(X_, mask)
-
-        decode_data(X_, idx2encoder, "int32")
+        X=pd.DataFrame(X_, columns=columns, index=index)
+        X=decode_data(X, idx2encoder, "float32")
 
         # Return imputed dataset
-        return pd.DataFrame(X_, columns=columns, index=index)
+        return X

@@ -4,7 +4,7 @@
 
 import numpy as np
 import pandas as pd
-from sklearn.preprocessing import LabelEncoder
+from sklearn import clone
 from sklearn.utils.multiclass import type_of_target
 
 
@@ -153,17 +153,20 @@ def masked_euclidean_distances(X, Y=None, squared=False,
     return distances if squared else np.sqrt(distances, out=distances)
 
 
-def is_cat(s, consider_ordinal_as_cat):
+def is_cat(s: pd.Series, consider_ordinal_as_cat):
     for elem in s:
         if isinstance(elem, (float, int)):
             continue
         else:
             return True
     if consider_ordinal_as_cat:
+        if isinstance(s, np.ndarray):
+            s = pd.Series(s)
+        s = s.dropna()
         if s.dtype == object:
-            s = s.astype(float)
-        tp = type_of_target(finite_array(s[~np.isnan(s)]))
-        if tp in ("multiclass", "binary"):
+            s = s.astype('float32')
+        tp = type_of_target(s)
+        if tp in ("multiclass",):
             return True
     return False
 
@@ -179,22 +182,42 @@ def parse_cat_col(X_, consider_ordinal_as_cat):
             num_idx.append(i)
     return np.array(num_idx), np.array(cat_idx)
 
-def encode_data(X_,cat_idx,additional_data,target_type):
+
+def build_encoder(X_, y, cat_idx, passed_encoder, additional_data_list, target_type):
     idx2encoder = {}
     for idx in cat_idx:
-        if is_cat(X_[:, idx], False):
-            col = X_[:, idx]
-            valid_mask = ~pd.isna(col)
-            masked = col[valid_mask]
-            masked = masked.astype(str)
-            encoder = LabelEncoder()
-            encoder.fit(masked)
-            idx2encoder[idx] = encoder
-            X_[valid_mask, idx] = encoder.transform(masked)
-            for data in additional_data:
-                data[idx] = encoder.transform([data[idx]])[0].astype(target_type)
-    return idx2encoder
+        col = X_[:, idx]
+        valid_mask = ~pd.isna(col)
+        masked_col = col[valid_mask]
+        if y is not None:
+            masked_y = y[valid_mask]
+        else:
+            masked_y = None
+        masked_col = masked_col.reshape(-1, 1).astype(str)
+        encoder = clone(passed_encoder)
+        encoder.fit(masked_col, masked_y)
+        idx2encoder[idx] = encoder
+        X_[valid_mask, idx] = encoder.transform(masked_col).squeeze()
+        for additional_data in additional_data_list:
+            additional_data[idx] = encoder.transform([[str(additional_data[idx])]])[0][0]
+    X_ = X_.astype(target_type)
+    return idx2encoder, X_
 
-def decode_data(X_,idx2encoder, target_type):
+
+def encode_data(X_, idx2encoder, target_type):
     for idx, encoder in idx2encoder.items():
-        X_[:, idx] = encoder.inverse_transform(X_[:, idx].astype(target_type))
+        col = X_[:, idx]
+        valid_mask = ~pd.isna(col)
+        masked_col = col[valid_mask]
+        masked_col = masked_col.reshape(-1, 1).astype(str)
+        X_[valid_mask, idx] = encoder.transform(masked_col).squeeze()
+    return X_.astype(target_type)
+
+
+def decode_data(X, idx2encoder, target_type):
+    for idx, encoder in idx2encoder.items():
+        column=X.columns[idx]
+        sub_df=X[[column]].astype(target_type)
+        sub_df.columns=[0]
+        X[[column]] = encoder.inverse_transform(sub_df)
+    return X
