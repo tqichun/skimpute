@@ -35,17 +35,18 @@ DAMAGE.
 """
 
 from __future__ import division
-from functools import partial
+
 import itertools
+from functools import partial
+from typing import Union
 
 import numpy as np
 import pandas as pd
-from scipy.spatial import distance
 from scipy.sparse import issparse
-
-from sklearn.metrics.pairwise import _VALID_METRICS, _return_float_dtype
+from scipy.spatial import distance
 from sklearn.metrics.pairwise import PAIRWISE_BOOLEAN_FUNCTIONS
 from sklearn.metrics.pairwise import PAIRWISE_DISTANCE_FUNCTIONS
+from sklearn.metrics.pairwise import _VALID_METRICS, _return_float_dtype
 from sklearn.metrics.pairwise import _parallel_pairwise
 from sklearn.utils import check_array
 
@@ -55,15 +56,15 @@ _MASKED_METRICS = ['masked_euclidean']
 _VALID_METRICS += ['masked_euclidean']
 
 
-def _get_mask(X:pd.DataFrame, value_to_mask):
+def _get_mask(X: Union[pd.DataFrame, np.ndarray], value_to_mask):
     """Compute the boolean mask X == missing_values."""
     if value_to_mask == "NaN" or np.isnan(value_to_mask):
-        ans= pd.isna(X)
+        ans = pd.isna(X)
     else:
-        ans= (X == value_to_mask)
-    if isinstance(ans,(pd.DataFrame,pd.Series)):
-        ans=ans.values
-    return  ans
+        ans = (X == value_to_mask)
+    if isinstance(ans, (pd.DataFrame, pd.Series)):
+        ans = ans.values
+    return ans
 
 
 def check_pairwise_arrays(X, Y, precomputed=False, dtype=None,

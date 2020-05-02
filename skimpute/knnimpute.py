@@ -8,7 +8,9 @@ import warnings
 import numpy as np
 import pandas as pd
 from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.impute import SimpleImputer
 from sklearn.neighbors._base import _get_weights
+from sklearn.preprocessing import MinMaxScaler
 from sklearn.utils.validation import check_is_fitted
 
 from skimpute.utils import process_dataframe, parse_cat_col, build_encoder, encode_data, decode_data
@@ -239,7 +241,7 @@ class KNNImputer(BaseEstimator, TransformerMixin):
             The imputed dataset.
         """
 
-        check_is_fitted(self, ["fitted_X_", "statistics_", "do_simple_imputing", "idx2encoder","dtypes"])
+        check_is_fitted(self, ["fitted_X_", "statistics_", "do_simple_imputing", "idx2encoder", "dtypes"])
         if self.do_simple_imputing:
             logger.debug("KNNImputer is doing adaptive simple imputation.")
             from skimpute import AdaptiveSimpleImputer
@@ -280,8 +282,14 @@ class KNNImputer(BaseEstimator, TransformerMixin):
 
             # Pairwise distances between receivers and fitted samples
             dist = np.empty((len(X_), len(self.fitted_X_)))
+            X_miss = X_.iloc[row_has_missing].values
+            fitted_X = self.fitted_X_
+
+            # X_miss, self.scaler = self.min_max_scale(X_miss)
+            # fitted_X, _ = self.min_max_scale(fitted_X)
+
             dist[row_has_missing] = pairwise_distances(
-                X_.iloc[row_has_missing].values, self.fitted_X_, metric=self.metric,
+                X_miss, fitted_X, metric=self.metric,
                 squared=False, missing_values=self.missing_values)
 
             # Find and impute missing
@@ -300,3 +308,11 @@ class KNNImputer(BaseEstimator, TransformerMixin):
         X = decode_data(X, self.idx2encoder)
         X = X.astype(self.dtypes)
         return X
+
+    def min_max_scale(self, X: np.ndarray):
+        X_miss_mask = _get_mask(X, self.missing_values)
+        X = SimpleImputer(strategy="most_frequent").fit_transform(X)
+        scaler = MinMaxScaler()
+        X = scaler.fit_transform(X)
+        X[X_miss_mask] = np.nan
+        return X, scaler
