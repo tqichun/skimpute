@@ -153,21 +153,21 @@ def masked_euclidean_distances(X, Y=None, squared=False,
     return distances if squared else np.sqrt(distances, out=distances)
 
 
-def is_cat(s: pd.Series, consider_ordinal_as_cat):
-    for elem in s:
-        if isinstance(elem, (float, int)):
-            continue
-        else:
-            return True
-    if consider_ordinal_as_cat:
-        if isinstance(s, np.ndarray):
-            s = pd.Series(s)
-        s = s.dropna()
-        if s.dtype == object:
-            s = s.astype('float32')
-        tp = type_of_target(s)
-        if tp in ("multiclass",):
-            return True
+def is_cat(s: Union[pd.Series, np.ndarray], consider_ordinal_as_cat):
+    if not isinstance(s, pd.Series):
+        s = pd.Series(s)
+    if s.dtype == object:
+        for elem in s:
+            if isinstance(elem, (float, int)):
+                continue
+            else:
+                return True
+        s = s.astype('float32')
+        if consider_ordinal_as_cat:
+            s = s.dropna()
+            tp = type_of_target(s)
+            if tp in ("multiclass",):
+                return True
     return False
 
 
@@ -183,10 +183,10 @@ def parse_cat_col(X_: pd.DataFrame, consider_ordinal_as_cat):
     return np.array(num_idx), np.array(cat_idx)
 
 
-def build_encoder(X_:pd.DataFrame, y, cat_idx, passed_encoder, additional_data_list:List[np.ndarray], target_type):
+def build_encoder(X_: pd.DataFrame, y, cat_idx, passed_encoder, additional_data_list: List[np.ndarray], target_type):
     pd.set_option('mode.chained_assignment', None)
     idx2encoder = {}
-    result_additional_data_list=deepcopy(additional_data_list)
+    result_additional_data_list = deepcopy(additional_data_list)
     for idx in cat_idx:
         col = X_.values[:, idx]
         valid_mask = ~pd.isna(col)
@@ -199,21 +199,21 @@ def build_encoder(X_:pd.DataFrame, y, cat_idx, passed_encoder, additional_data_l
         encoder = clone(passed_encoder)
         encoder.fit(masked_col, masked_y)
         idx2encoder[idx] = encoder
-        col[valid_mask]=encoder.transform(masked_col).squeeze()
+        col[valid_mask] = encoder.transform(masked_col).squeeze()
         X_.iloc[:, idx] = col.astype(target_type)
         for additional_data in result_additional_data_list:
             additional_data[idx] = encoder.transform([[str(additional_data[idx])]])[0][0]
     return idx2encoder, X_, result_additional_data_list
 
 
-def encode_data(X_:pd.DataFrame, idx2encoder, target_type):
+def encode_data(X_: pd.DataFrame, idx2encoder, target_type):
     pd.set_option('mode.chained_assignment', None)
     for idx, encoder in idx2encoder.items():
         col = X_.values[:, idx]
         valid_mask = ~pd.isna(col)
         masked_col = col[valid_mask]
         masked_col = masked_col.reshape(-1, 1).astype(str)
-        col[valid_mask]=encoder.transform(masked_col).squeeze()
+        col[valid_mask] = encoder.transform(masked_col).squeeze()
         X_.iloc[:, idx] = col
     return X_.astype(target_type)
 
@@ -223,5 +223,5 @@ def decode_data(X, idx2encoder):
         column = X.columns[idx]
         sub_df = X[[column]]
         sub_df.columns = [0]
-        X[[column]] = encoder.inverse_transform(sub_df)#.astype(target_types[idx])
+        X[[column]] = encoder.inverse_transform(sub_df)  # .astype(target_types[idx])
     return X

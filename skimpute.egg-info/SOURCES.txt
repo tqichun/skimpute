@@ -10,3 +10,5 @@ skimpute.egg-info/PKG-INFO
 skimpute.egg-info/SOURCES.txt
 skimpute.egg-info/dependency_links.txt
 skimpute.egg-info/top_level.txt
+skimpute/wrapped_encodes/__init__.py
+skimpute/wrapped_encodes/target_encoder.py
